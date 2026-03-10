@@ -183,10 +183,18 @@
                 class="card-header bg-white border-bottom py-3 d-flex justify-content-between align-items-center"
               >
                 <span class="fw-bold text-dark">Evaluation Metrics</span>
-                <span class="badge bg-light text-primary border border-primary">
-                  Silhouette Score: {{ evaluations.silhouette }} |
-                  Coefficient of Variation: {{ evaluations.cv }}
-                </span>
+                <div class="text-end">
+                  <span class="badge bg-light text-primary border border-primary">
+                    Silhouette Score: {{ evaluations.silhouette }} |
+                    Coefficient of Variation: {{ evaluations.cv }}
+                  </span>
+                  <div class="mt-2">
+                    <span class="badge bg-light text-dark border border-secondary">
+                      Total CV (Income): {{ evaluations.total_income_cv }} |
+                      Total CV (Selling Price): {{ evaluations.total_selling_price_cv }}
+                    </span>
+                  </div>
+                </div>
               </div>
               <div class="card-body">
                 <div class="table-responsive">{{ evaluations.summary|safe }}</div>

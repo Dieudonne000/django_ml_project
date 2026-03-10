@@ -48,6 +48,13 @@ CLUSTER_CONFIGS = [
 ]
 
 
+def _cv(values: pd.Series) -> float:
+    mean_val = float(values.mean())
+    if mean_val == 0:
+        return 0.0
+    return float(values.std(ddof=1) / mean_val)
+
+
 def _build_scaler(scaler_name: str):
     if scaler_name == "quantile":
         return QuantileTransformer(output_distribution="normal", random_state=42)
@@ -93,6 +100,13 @@ def train_and_save_clustering_bundle():
     and coefficient of variation.
     """
     df = pd.read_csv(DATASET_PATH)
+    dataset_client_classes = (
+        sorted(df["client_class"].dropna().astype(str).unique().tolist())
+        if "client_class" in df.columns
+        else []
+    )
+    total_income_cv = _cv(df["estimated_income"].astype(float))
+    total_selling_price_cv = _cv(df["selling_price"].astype(float))
 
     best = {
         "score": -1.0,
@@ -107,7 +121,7 @@ def train_and_save_clustering_bundle():
         "algorithm": None,
         "X": None,
     }
-    best_priority = None
+    best_feasible = None
 
     for config in CLUSTER_CONFIGS:
         feats = config["features"]
@@ -148,9 +162,25 @@ def train_and_save_clustering_bundle():
                 }
                 if score > best["score"]:
                     best.update(candidate)
-                if k >= 3 and score >= 0.90:
-                    if best_priority is None or score > best_priority["score"]:
-                        best_priority = candidate.copy()
+                candidate_df = df.copy()
+                candidate_df["cluster_id"] = labels
+                candidate_income_cv_max = (
+                    candidate_df.groupby("cluster_id")["estimated_income"]
+                    .apply(_cv)
+                    .max()
+                )
+                candidate_selling_cv_max = (
+                    candidate_df.groupby("cluster_id")["selling_price"]
+                    .apply(_cv)
+                    .max()
+                )
+                constraint_ok = (
+                    candidate_income_cv_max <= total_income_cv
+                    and candidate_selling_cv_max <= total_selling_price_cv
+                )
+                if score >= 0.90 and constraint_ok:
+                    if best_feasible is None or score > best_feasible["score"]:
+                        best_feasible = candidate.copy()
 
     if best["kmeans"] is None:
         fallback_feats = ["estimated_income", "selling_price"]
@@ -172,8 +202,8 @@ def train_and_save_clustering_bundle():
                 "X": X_raw,
             }
         )
-    if best_priority is not None:
-        best.update(best_priority)
+    if best_feasible is not None:
+        best.update(best_feasible)
 
     df["cluster_id"] = best["labels"]
 
@@ -207,18 +237,25 @@ def train_and_save_clustering_bundle():
         .agg(
             count=("client_class", "size"),
             estimated_income=("estimated_income", "mean"),
+            estimated_income_std=("estimated_income", "std"),
             selling_price=("selling_price", "mean"),
             selling_price_std=("selling_price", "std"),
         )
         .reset_index()
     )
-    cluster_summary["class_cv"] = np.where(
+    cluster_summary["estimated_income_cv"] = np.where(
+        cluster_summary["estimated_income"] != 0,
+        cluster_summary["estimated_income_std"].fillna(0.0)
+        / cluster_summary["estimated_income"],
+        0.0,
+    )
+    cluster_summary["selling_price_cv"] = np.where(
         cluster_summary["selling_price"] != 0,
         cluster_summary["selling_price_std"].fillna(0.0)
         / cluster_summary["selling_price"],
         0.0,
     )
-    summary_classes = list(cluster_mapping.values())
+    summary_classes = dataset_client_classes if dataset_client_classes else list(cluster_mapping.values())
     cluster_summary["client_class"] = pd.Categorical(
         cluster_summary["client_class"],
         categories=summary_classes,
@@ -227,7 +264,14 @@ def train_and_save_clustering_bundle():
     cluster_summary = cluster_summary.sort_values("client_class").reset_index(drop=True)
     cluster_summary["client_class"] = cluster_summary["client_class"].astype(str)
     cluster_summary = cluster_summary[
-        ["client_class", "count", "estimated_income", "selling_price", "class_cv"]
+        [
+            "client_class",
+            "count",
+            "estimated_income",
+            "estimated_income_cv",
+            "selling_price",
+            "selling_price_cv",
+        ]
     ]
 
     comparison_cols = [
@@ -239,13 +283,21 @@ def train_and_save_clustering_bundle():
         comparison_cols = ["estimated_income", "selling_price", "client_class"]
     comparison_df = df[comparison_cols]
 
-    return bundle, silhouette_avg, cv, cluster_summary, comparison_df
+    return (
+        bundle,
+        silhouette_avg,
+        cv,
+        round(total_income_cv, 2),
+        round(total_selling_price_cv, 2),
+        cluster_summary,
+        comparison_df,
+    )
 
 
 def get_clustering_bundle():
     if MODEL_PATH.exists():
         return joblib.load(MODEL_PATH)
-    bundle, _, _, _, _ = train_and_save_clustering_bundle()
+    bundle, _, _, _, _, _, _ = train_and_save_clustering_bundle()
     return bundle
 
 
@@ -271,10 +323,20 @@ def predict_cluster_id(
 
 
 def evaluate_clustering_model():
-    _, silhouette_avg, cv, cluster_summary, comparison_df = train_and_save_clustering_bundle()
+    (
+        _,
+        silhouette_avg,
+        cv,
+        total_income_cv,
+        total_selling_price_cv,
+        cluster_summary,
+        comparison_df,
+    ) = train_and_save_clustering_bundle()
     return {
         "silhouette": silhouette_avg,
         "cv": cv,
+        "total_income_cv": total_income_cv,
+        "total_selling_price_cv": total_selling_price_cv,
         "summary": cluster_summary.to_html(
             classes="table table-bordered table-striped table-sm",
             float_format="%.2f",
