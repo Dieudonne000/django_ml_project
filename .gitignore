@@ -11,7 +11,6 @@ venv/
 
 # Editor/IDE-specific files and directories
 .idea/  # For PyCharm and other JetBrains IDEs
-.vscode/ # For VS Code
 .nyc_output/
 .coverage
 .pytest_cache/
@@ -27,3 +26,7 @@ build/
 # OS-specific files
 .DS_Store # macOS
 Thumbs.db # Windows
+branch_structure.json
+temp_auto_push.bat
+temp_interactive_push.bat
+.gitignore
