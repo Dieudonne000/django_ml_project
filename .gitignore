@@ -1,0 +1,29 @@
+# Byte-code files
+*.pyc
+__pycache__/
+
+# Virtual environments
+.venv/
+env/
+venv/
+*.egg-info/
+.tox/
+
+# Editor/IDE-specific files and directories
+.idea/  # For PyCharm and other JetBrains IDEs
+.vscode/ # For VS Code
+.nyc_output/
+.coverage
+.pytest_cache/
+
+# Runtime and log files
+*.log
+.env # Environment variables file, often contains sensitive data
+
+# Build artifacts
+dist/
+build/
+
+# OS-specific files
+.DS_Store # macOS
+Thumbs.db # Windows
